@@ -1,163 +1,163 @@
-import { join } from "@smake/utils";
+import { LLVM } from "@smake/llvm";
 import { execSync } from "child_process";
-import { writeFileSync } from "fs";
-import { LLVM } from "./LLVM";
+import { parse, stringify } from "comment-json";
+import { readFile, stat } from "fs/promises";
 
-const compdb: any[] = [];
-const compdbFilePath = 'compile_commands.json';
 
 export function vscode(llvm: LLVM) {
   const t = llvm as any;
-  t.vscode = async (opts: any, first: boolean, last: boolean) => {
-    const cmds: any[] = await llvm.generateCommands(first, last);
-    await cmds[0].command(opts);
-    let cmd = `ninja -f ${llvm.ninjaFilePath} -t compdb`;
-    const json = execSync(cmd).toString();
-    const arr = JSON.parse(json);
-    if (first) compdb.splice(0);
-    compdb.splice(compdb.length, 0, ...arr);
-    if (last)
-      writeFileSync(
-        compdbFilePath,
-        JSON.stringify(compdb, null, 2)
-      );
+  t.vscode = async (files: any[], opts: any, key: string) => {
+    await compdb(files, opts, llvm);
+    await vscodeTasks(files, key);
+    await vscodeLaunch(files, key, llvm);
   };
 }
 
-async function ide(llvm: LLVM) {
-  ideVscodeTasks(keys);
-  ideVscodeLaunch(keys, targetsMap);
-  console.log(colors.green('VSCode OK.'));
+const compdbFilePath = 'compile_commands.json';
+
+async function compdb(files: any[], opts: any, llvm: LLVM) {
+  const cmds: any[] = await llvm.generateCommands(false, false);
+  await cmds[0].command(opts);
+  let cmd = `ninja -f ${llvm.ninjaFilePath} -t compdb`;
+  const json = execSync(cmd).toString();
+  const arr = JSON.parse(json);
+  let file = files.find(f => f.path === compdbFilePath);
+  if (!file) {
+    file = { path: compdbFilePath, content: '[]' };
+    files.push(file);
+  }
+  const dbs = JSON.parse(file.content);
+  dbs.splice(dbs.length, 0, ...arr);
+  file.content = JSON.stringify(dbs, null, 2);
 }
 
 async function fileExists(p: string) {
-  
+  try {
+    const st = await stat(p);
+    return st.isFile();
+  } catch {
+    return false;
+  }
 }
 
-async function ideVscodeTasks(keys: string[]) {
-  const dir = '.vscode';
-  const fp = join(dir, 'tasks.json');
-  let json: {
-    version: string;
-    tasks: any[];
-  };
-  if (!existsSync(fp)) {
-    mkdirSync(dir, { recursive: true });
-    json = {
-      version: '2.0.0',
-      tasks: [],
-    };
-  } else {
-    try {
-      json = cj.parse(readFileSync(fp).toString());
-    } catch {
-      json = {
-        version: '2.0.0',
-        tasks: [],
+const vscodeTasksFilePath = '.vscode/tasks.json';
+
+async function vscodeTasks(files: any[], key: string) {
+  let file = files.find(f => f.path === vscodeTasksFilePath);
+  if (!file) {
+    if (await fileExists(vscodeTasksFilePath)) {
+      try {
+        const content = (await readFile(vscodeTasksFilePath)).toString();
+        file = {
+          path: vscodeTasksFilePath, content,
+        };
+      } catch { }
+    }
+
+    if (!file) {
+      file = {
+        path: vscodeTasksFilePath, content: JSON.stringify({
+          version: '2.0.0',
+          tasks: [],
+        })
       };
     }
+    files.push(file);
   }
 
-  for (const k of keys) {
-    const label = 'Build release ' + k;
+  const json: {
+    version: string;
+    tasks: any[];
+  } = parse(file.content) as any;
+
+  if (true) {
+    const label = 'Build release ' + key;
     let i = json.tasks.findIndex((t) => t.label === label);
     if (!~i) i = json.tasks.length;
     json.tasks[i] = {
       label,
       type: 'shell',
-      command: 'node',
-      args: ['node_modules/smake/lib/bin', 'build', k],
+      command: 'smake',
+      args: ['build', key],
       group: 'build',
       options: {
         cwd: '${workspaceRoot}',
       },
     };
   }
-  for (const k of keys) {
-    const label = 'Build debug ' + k;
+  if (true) {
+    const label = 'Build debug ' + key;
     let i = json.tasks.findIndex((t) => t.label === label);
     if (!~i) i = json.tasks.length;
     json.tasks[i] = {
       label,
       type: 'shell',
-      command: 'node',
-      args: ['node_modules/smake/lib/bin', 'build', '-d', k],
+      command: 'smake',
+      args: ['build', '-d', key],
       group: 'test',
       options: {
         cwd: '${workspaceRoot}',
       },
     };
   }
-  for (const k of keys) {
-    const label = 'Build compdb ' + k;
+  if (true) {
+    const label = 'Clean ' + key;
     let i = json.tasks.findIndex((t) => t.label === label);
     if (!~i) i = json.tasks.length;
     json.tasks[i] = {
       label,
       type: 'shell',
-      command: 'node',
-      args: ['node_modules/smake/lib/bin', 'build', '-c', k],
+      command: 'smake',
+      args: ['clean', key],
       options: {
         cwd: '${workspaceRoot}',
       },
       problemMatcher: [],
     };
   }
-  for (const k of keys) {
-    const label = 'Clean ' + k;
-    let i = json.tasks.findIndex((t) => t.label === label);
-    if (!~i) i = json.tasks.length;
-    json.tasks[i] = {
-      label,
-      type: 'shell',
-      command: 'node',
-      args: ['node_modules/smake/lib/bin', 'clean', k],
-      options: {
-        cwd: '${workspaceRoot}',
-      },
-      problemMatcher: [],
-    };
-  }
-  writeFileSync(fp, JSON.stringify(json, null, 2));
+  file.content = stringify(json, null, 2);
 }
 
-function ideVscodeLaunch(keys: string[], targetsMap: any) {
-  const dir = '.vscode';
-  const fp = dir + '/launch.json';
-  let json: {
-    version: string;
-    configurations: any[];
-  };
-  if (!existsSync(fp)) {
-    mkdirSync(dir, { recursive: true });
-    json = {
-      version: '0.2.0',
-      configurations: [],
-    };
-  } else {
-    try {
-      json = cj.parse(readFileSync(fp).toString());
-    } catch {
-      json = {
-        version: '0.2.0',
-        configurations: [],
+const vscodeLaunchFilePath = '.vscode/launch.json';
+
+async function vscodeLaunch(files: any[], key: string, llvm: LLVM) {
+  let file = files.find(f => f.path === vscodeLaunchFilePath);
+  if (!file) {
+    if (await fileExists(vscodeLaunchFilePath)) {
+      try {
+        const content = (await readFile(vscodeLaunchFilePath)).toString();
+        file = {
+          path: vscodeLaunchFilePath, content,
+        };
+      } catch { }
+    }
+
+    if (!file) {
+      file = {
+        path: vscodeLaunchFilePath, content: JSON.stringify({
+          version: '0.2.0',
+          configurations: [],
+        })
       };
     }
+    files.push(file);
   }
 
-  for (const k of keys) {
-    const obj = targetsMap[k];
-    if (obj.type !== 'executable') continue;
-    if (!(obj instanceof LLVM)) continue;
-    const debugLabel = 'Build debug ' + k;
-    const name = '(lldb) ' + k;
+  const json: {
+    version: string;
+    configurations: any[];
+  } = parse(file.content) as any;
+
+  if (llvm.type === 'executable') {
+    const debugLabel = 'Build debug ' + key;
+    const name = '(lldb) ' + key;
     let i = json.configurations.findIndex((t) => t.name === name);
     if (!~i) i = json.configurations.length;
     json.configurations[i] = {
       name,
       type: 'lldb',
       request: 'launch',
-      program: obj.outputPath,
+      program: llvm.outputPath,
       args: [],
       stopAtEntry: false,
       cwd: '${workspaceRoot}',
@@ -167,5 +167,5 @@ function ideVscodeLaunch(keys: string[], targetsMap: any) {
     };
   }
 
-  writeFileSync(fp, JSON.stringify(json, null, 2));
+  file.content = stringify(json, null, 2);
 }

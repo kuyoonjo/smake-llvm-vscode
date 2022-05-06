@@ -41,6 +41,7 @@
   "dependencies": {
     "@smake/llvm": "^1.0.2",
     "@smake/utils": "^1.0.1",
-    "colors": "^1.4.0"
+    "colors": "^1.4.0",
+    "comment-json": "^4.2.2"
   }
 }
