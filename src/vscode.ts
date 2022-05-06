@@ -1,23 +1,39 @@
 import { LLVM } from "@smake/llvm";
 import { execSync } from "child_process";
 import { parse, stringify } from "comment-json";
-import { readFile, stat } from "fs/promises";
+import { createHash } from "crypto";
+import { readFile, stat, writeFile } from "fs/promises";
 
 
 export function vscode(llvm: LLVM) {
   const t = llvm as any;
   t.vscode = async (files: any[], opts: any, key: string) => {
-    await compdb(files, opts, llvm);
     await vscodeTasks(files, key);
     await vscodeLaunch(files, key, llvm);
+    await compdb(files, opts, llvm);
   };
 }
 
 const compdbFilePath = 'compile_commands.json';
 
 async function compdb(files: any[], opts: any, llvm: LLVM) {
-  const cmds: any[] = await llvm.generateCommands(false, false);
-  await cmds[0].command(opts);
+  if (llvm.target.includes('windows-msvc')) {
+    const target = llvm.target;
+    await llvm.generateCommands(false, false);
+    const hash = createHash('md5').update(Math.random().toString()).digest('hex');
+    llvm.target = llvm.target.replace('windows-msvc', hash);
+    const cmds: any[] = await llvm.generateCommands(false, false);
+    await cmds[0].command(opts);
+    llvm.target = target;
+    let ninja = (await readFile(llvm.ninjaFilePath)).toString();
+    ninja = ninja.replaceAll(' --sysroot undefined', '')
+      .replaceAll(hash, 'windows-msvc')
+      .replaceAll('-fPIC', '');
+    await writeFile(llvm.ninjaFilePath, ninja);
+  } else {
+    const cmds: any[] = await llvm.generateCommands(false, false);
+    await cmds[0].command(opts);
+  }
   let cmd = `ninja -f ${llvm.ninjaFilePath} -t compdb`;
   const json = execSync(cmd).toString();
   const arr = JSON.parse(json);
@@ -150,6 +166,7 @@ async function vscodeLaunch(files: any[], key: string, llvm: LLVM) {
 
   if (llvm.type === 'executable') {
     const debugLabel = 'Build debug ' + key;
+    llvm['debug'] = true;
     const name = '(lldb) ' + key;
     let i = json.configurations.findIndex((t) => t.name === name);
     if (!~i) i = json.configurations.length;
@@ -159,9 +176,7 @@ async function vscodeLaunch(files: any[], key: string, llvm: LLVM) {
       request: 'launch',
       program: llvm.outputPath,
       args: [],
-      stopAtEntry: false,
       cwd: '${workspaceRoot}',
-      environment: [],
       console: 'integratedTerminal',
       preLaunchTask: debugLabel,
     };
