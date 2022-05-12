@@ -1,7 +1,7 @@
 {
   "name": "@smake/llvm-vscode",
   "version": "1.0.0",
-  "description": "Typescript Module Template",
+  "description": "smake LLVM vscode implementation",
   "license": "MIT",
   "repository": "",
   "author": {
@@ -39,9 +39,8 @@
     "node": ">=12.0.0"
   },
   "dependencies": {
-    "@smake/llvm": "^1.0.3",
-    "@smake/utils": "^1.0.1",
-    "colors": "^1.4.0",
+    "@smake/llvm": "^1.0.4",
+    "@smake/utils": "^1.0.2",
     "comment-json": "^4.2.2"
   }
 }

@@ -1,4 +1,5 @@
 import { LLVM } from "@smake/llvm";
+import { findKey, Target } from "@smake/utils";
 import { execSync } from "child_process";
 import { parse, stringify } from "comment-json";
 import { createHash } from "crypto";
@@ -7,8 +8,9 @@ import { readFile, stat, writeFile } from "fs/promises";
 
 export function vscode(llvm: LLVM) {
   const t = llvm as any;
-  t.vscode = async (files: any[], opts: any, key: string) => {
-    await vscodeTasks(files, key);
+  t.vscode = async (files: any[], opts: any, target: LLVM, targets: Target[]) => {
+    const key = findKey(target, targets);
+    await vscodeTasks(files, key, llvm, targets);
     await vscodeLaunch(files, key, llvm);
     await compdb(files, opts, llvm);
   };
@@ -45,6 +47,7 @@ async function compdb(files: any[], opts: any, llvm: LLVM) {
   const dbs = JSON.parse(file.content);
   dbs.splice(dbs.length, 0, ...arr);
   file.content = JSON.stringify(dbs, null, 2);
+  file.okMsg = 'vscode compdb ' + (opts.debug ? 'for debug ' : '') + 'OK.';
 }
 
 async function fileExists(p: string) {
@@ -58,7 +61,7 @@ async function fileExists(p: string) {
 
 const vscodeTasksFilePath = '.vscode/tasks.json';
 
-async function vscodeTasks(files: any[], key: string) {
+async function vscodeTasks(files: any[], key: string, llvm: LLVM, targets: Target[]) {
   let file = files.find(f => f.path === vscodeTasksFilePath);
   if (!file) {
     if (await fileExists(vscodeTasksFilePath)) {
@@ -99,7 +102,15 @@ async function vscodeTasks(files: any[], key: string) {
       options: {
         cwd: '${workspaceRoot}',
       },
+      dependsOn: [],
     };
+    if (llvm.type === 'executable' || llvm.type === 'shared') {
+      const llvmLibs = llvm.libs.filter(x => x instanceof LLVM) as LLVM[];
+      for (const lib of llvmLibs) {
+        const k = findKey(lib, targets);
+        json.tasks[i].dependsOn.push('Build release ' + k);
+      }
+    }
   }
   if (true) {
     const label = 'Build debug ' + key;
@@ -114,7 +125,15 @@ async function vscodeTasks(files: any[], key: string) {
       options: {
         cwd: '${workspaceRoot}',
       },
+      dependsOn: [],
     };
+    if (llvm.type === 'executable' || llvm.type === 'shared') {
+      const llvmLibs = llvm.libs.filter(x => x instanceof LLVM) as LLVM[];
+      for (const lib of llvmLibs) {
+        const k = findKey(lib, targets);
+        json.tasks[i].dependsOn.push('Build debug ' + k);
+      }
+    }
   }
   if (true) {
     const label = 'Clean ' + key;
@@ -132,6 +151,7 @@ async function vscodeTasks(files: any[], key: string) {
     };
   }
   file.content = stringify(json, null, 2);
+  file.okMsg = 'vscode tasks OK.';
 }
 
 const vscodeLaunchFilePath = '.vscode/launch.json';
@@ -183,4 +203,5 @@ async function vscodeLaunch(files: any[], key: string, llvm: LLVM) {
   }
 
   file.content = stringify(json, null, 2);
+  file.okMsg = 'vscode launchers OK.';
 }
